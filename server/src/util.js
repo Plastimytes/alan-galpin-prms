@@ -1,0 +1,18 @@
+const db = require('./db');
+const wrap = fn => (req, res, next) => { try { const r = fn(req, res, next); if (r && r.catch) r.catch(next); } catch (e) { next(e); } };
+const missing = (b, ks) => ks.filter(k => b[k] === undefined || b[k] === null || String(b[k]).trim() === '');
+const pick = (b, ks) => Object.fromEntries(ks.filter(k => b[k] !== undefined).map(k => [k, typeof b[k] === 'string' ? b[k].trim() : b[k]]));
+const ins = (table, o) => { const ks = Object.keys(o); return db.prepare(`INSERT INTO ${table}(${ks.join(',')}) VALUES(${ks.map(k => '@' + k).join(',')})`).run(o).lastInsertRowid; };
+const upd = (table, id, o) => { const ks = Object.keys(o); if (!ks.length) return; db.prepare(`UPDATE ${table} SET ${ks.map(k => k + '=@' + k).join(',')} WHERE id=@id`).run({ ...o, id }); };
+const today = () => new Date().toISOString().slice(0, 10);
+const age = d => d ? Math.floor((Date.now() - new Date(d)) / 31557600000) : null;
+const rand = n => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
+const mrn = () => { let m; do m = 'AG-' + new Date().getFullYear().toString().slice(2) + '-' + rand(6); while (db.prepare('SELECT 1 FROM patients WHERE mrn=?').get(m)); return m; };
+const csv = rows => { if (!rows.length) return ''; const ks = Object.keys(rows[0]); const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  return [ks.join(','), ...rows.map(r => ks.map(k => q(/^[=+\-@]/.test(String(r[k] ?? '')) ? "'" + r[k] : r[k])).join(','))].join('\n'); };
+const range = (q) => { const t = new Date(), d = x => x.toISOString().slice(0, 10), add = n => { const x = new Date(); x.setDate(x.getDate() + n); return x; };
+  const r = q.range || '30d', som = new Date(t.getFullYear(), t.getMonth(), 1);
+  if (r === 'today') return [d(t), d(t)]; if (r === 'yesterday') return [d(add(-1)), d(add(-1))]; if (r === '7d') return [d(add(-6)), d(t)];
+  if (r === 'month') return [d(som), d(t)]; if (r === 'lastmonth') return [d(new Date(t.getFullYear(), t.getMonth() - 1, 1)), d(new Date(t.getFullYear(), t.getMonth(), 0))];
+  if (r === 'custom' && q.from && q.to) return [q.from, q.to]; return [d(add(-29)), d(t)]; };
+module.exports = { wrap, missing, pick, ins, upd, today, age, mrn, rand, csv, range };
